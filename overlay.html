@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>TikTok LIVE Overlay</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@700;900&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Orbitron', sans-serif;
+}
+
+#bgCanvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 1080px; height: 1920px;
+  z-index: 0; pointer-events: none;
+}
+
+/* ═══ LAYOUT ═══
+   CAM1:   0   → 300px
+   GAME:   300 → 1500px  (1200px tall)
+   TICKER: 1500→ 1620px  (120px)
+   CAM2:   1620→ 1920px  (300px)
+*/
+.zone-cam1 {
+  position: absolute; top: 0; left: 0; right: 0; height: 300px;
+  background: transparent; overflow: hidden; z-index: 10;
+}
+.zone-game {
+  position: absolute; top: 300px; left: 0; right: 0; height: 1200px;
+  background: transparent; overflow: hidden; z-index: 10;
+}
+.zone-ticker {
+  position: absolute; top: 1500px; left: 0; right: 0; height: 120px;
+  z-index: 20; overflow: hidden;
+}
+.zone-cam2 {
+  position: absolute; top: 1620px; left: 0; right: 0; height: 300px;
+  background: transparent; overflow: hidden; z-index: 10;
+}
+
+/* ═══ CAM BORDERS ═══ */
+.cam1-border, .cam2-border {
+  position: absolute; inset: 0; pointer-events: none; z-index: 10;
+}
+.cam1-border {
+  border: 3px solid rgba(0,255,255,0.5);
+  animation: camPulse1 2s ease-in-out infinite;
+  box-shadow: inset 0 0 60px rgba(0,255,255,0.06);
+}
+.cam2-border {
+  border: 3px solid rgba(255,0,255,0.5);
+  animation: camPulse2 2.4s ease-in-out infinite;
+  box-shadow: inset 0 0 60px rgba(255,0,255,0.06);
+}
+.cam1-border.hype-active { animation: camHype1 0.2s ease-in-out infinite !important; }
+.cam2-border.hype-active { animation: camHype2 0.2s ease-in-out infinite !important; }
+
+@keyframes camPulse1 {
+  0%,100% { border-color:rgba(0,255,255,0.3); box-shadow:inset 0 0 40px rgba(0,255,255,0.05); }
+  50%      { border-color:rgba(0,255,255,0.8); box-shadow:inset 0 0 100px rgba(0,255,255,0.18); }
+}
+@keyframes camPulse2 {
+  0%,100% { border-color:rgba(255,0,255,0.3); box-shadow:inset 0 0 40px rgba(255,0,255,0.05); }
+  50%      { border-color:rgba(255,0,255,0.8); box-shadow:inset 0 0 100px rgba(255,0,255,0.18); }
+}
+@keyframes camHype1 {
+  0%,100% { border-color:#00ffff; box-shadow:0 0 80px rgba(0,255,255,1),inset 0 0 120px rgba(0,255,255,0.5); }
+  50%      { border-color:#fff;    box-shadow:0 0 160px rgba(0,255,255,1),inset 0 0 200px rgba(0,255,255,0.7); }
+}
+@keyframes camHype2 {
+  0%,100% { border-color:#ff00ff; box-shadow:0 0 80px rgba(255,0,255,1),inset 0 0 120px rgba(255,0,255,0.5); }
+  50%      { border-color:#fff;    box-shadow:0 0 160px rgba(255,0,255,1),inset 0 0 200px rgba(255,0,255,0.7); }
+}
+/* Corner brackets */
+.cam1-border::before { content:''; position:absolute; top:-3px; left:-3px; width:30px; height:30px; border-top:5px solid #00ffff; border-left:5px solid #00ffff; }
+.cam1-border::after  { content:''; position:absolute; bottom:-3px; right:-3px; width:30px; height:30px; border-bottom:5px solid #00ffff; border-right:5px solid #00ffff; }
+.cam2-border::before { content:''; position:absolute; top:-3px; left:-3px; width:30px; height:30px; border-top:5px solid #ff00ff; border-left:5px solid #ff00ff; }
+.cam2-border::after  { content:''; position:absolute; bottom:-3px; right:-3px; width:30px; height:30px; border-bottom:5px solid #ff00ff; border-right:5px solid #ff00ff; }
+
+/* ═══ CAM LABELS ═══ */
+.cam-tag {
+  position: absolute; top: 14px; left: 18px;
+  font-family: 'Press Start 2P', monospace; font-size: 11px; letter-spacing: 2px;
+  z-index: 20; padding: 5px 12px; border-radius: 4px;
+}
+.cam-tag.cam1 { color:#00ffff; background:rgba(0,0,0,0.75); text-shadow:0 0 14px #00ffff; border:1px solid rgba(0,255,255,0.4); }
+.cam-tag.cam2 { color:#ff00ff; background:rgba(0,0,0,0.75); text-shadow:0 0 14px #ff00ff; border:1px solid rgba(255,0,255,0.4); }
+
+/* ═══ GAME BORDER ═══ */
+.game-border {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  border: 3px solid rgba(80,120,255,0.3);
+  animation: gameBdr 3s ease-in-out infinite;
+}
+@keyframes gameBdr {
+  0%,100% { border-color:rgba(80,120,255,0.2); box-shadow:inset 0 0 60px rgba(80,120,255,0.04); }
+  50%      { border-color:rgba(160,80,255,0.5); box-shadow:inset 0 0 100px rgba(160,80,255,0.08); }
+}
+.game-border.event-active {
+  animation: gameBdrEvent 0.3s ease-in-out infinite !important;
+}
+@keyframes gameBdrEvent {
+  0%,100% { border-color:rgba(255,200,0,1); box-shadow:0 0 80px rgba(255,200,0,0.6),inset 0 0 60px rgba(255,200,0,0.15); }
+  50%      { border-color:#fff;              box-shadow:0 0 140px rgba(255,200,0,1),inset 0 0 100px rgba(255,200,0,0.25); }
+}
+/* Game corner brackets */
+.game-border::before { content:'GAMEPLAY'; position:absolute; top:-1px; left:50%; transform:translateX(-50%);
+  font-family:'Press Start 2P',monospace; font-size:9px; letter-spacing:3px; color:rgba(120,80,255,0.6);
+  background:rgba(0,0,0,0.85); padding:3px 14px; border-radius:0 0 6px 6px;
+  text-shadow:0 0 10px rgba(160,80,255,0.5); }
+
+/* ═══ HUD — HYPE METER ═══ */
+.hype-meter {
+  position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
+  width: 50px; height: 420px;
+  background: rgba(0,0,0,0.78); border: 2px solid rgba(255,200,0,0.5);
+  border-radius: 8px; padding: 6px 6px 32px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  z-index: 20; overflow: hidden;
+  box-shadow: 0 0 30px rgba(255,200,0,0.12);
+}
+.hype-fill {
+  background: linear-gradient(to top, #ff1100, #ff5500, #ffaa00, #ffff00, #fff);
+  border-radius: 4px; width: 100%; transition: height 0.5s ease; position: relative;
+}
+.hype-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.3), transparent);
+  animation: hypeShine 1s ease-in-out infinite;
+}
+@keyframes hypeShine { 0%,100%{opacity:0.3} 50%{opacity:1} }
+.hype-label {
+  font-family: 'Press Start 2P', monospace; font-size: 7px; color: #ffcc00;
+  text-align: center; position: absolute; bottom: 4px; left: 0; right: 0;
+  background: rgba(0,0,0,0.9); padding: 3px 0;
+  text-shadow: 0 0 12px #ffcc00; letter-spacing: 1px;
+}
+.hype-meter-ticks {
+  position: absolute; right: 0; top: 6px; bottom: 32px; width: 6px;
+  display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0;
+}
+.hype-tick { width: 4px; height: 1px; background: rgba(255,200,0,0.3); align-self: flex-end; }
+.hype-tick:nth-child(5n+1) { width: 6px; background: rgba(255,200,0,0.6); }
+
+/* ═══ HUD — COMBO ═══ */
+.combo-tracker {
+  position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  width: 100px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 20;
+}
+.combo-label {
+  font-family: 'Press Start 2P', monospace; font-size: 7px; color: rgba(255,255,255,0.4);
+  letter-spacing: 1px;
+}
+.combo-fire { font-size: 30px; animation: fireWob 0.35s ease-in-out infinite alternate; }
+@keyframes fireWob { from{transform:scale(1) rotate(-6deg)} to{transform:scale(1.22) rotate(6deg)} }
+.combo-x { font-family:'Press Start 2P',monospace; font-size:14px; color:#ff6600; text-shadow:0 0 12px #ff4400; }
+.combo-number {
+  font-family: 'Press Start 2P', monospace; font-size: 40px; color: #ffaa00; line-height: 1;
+  text-shadow: 0 0 20px #ff6600, 0 0 50px #ff4400;
+  animation: comboGlow 0.9s ease-in-out infinite;
+}
+@keyframes comboGlow {
+  0%,100% { text-shadow:0 0 14px #ff6600; }
+  50%      { text-shadow:0 0 36px #ffaa00,0 0 70px #ff6600; }
+}
+
+/* ═══ HUD — GOAL BAR ═══ */
+.goal-bar {
+  position: absolute; bottom: 20px; left: 88px; right: 138px; z-index: 20;
+}
+.goal-label {
+  font-family: 'Press Start 2P', monospace; font-size: 10px; color: #00ff88;
+  letter-spacing: 1px; margin-bottom: 6px; text-shadow: 0 0 12px #00ff88;
+  display: flex; justify-content: space-between;
+}
+.goal-track {
+  height: 22px; background: rgba(0,0,0,0.78);
+  border: 2px solid rgba(0,255,136,0.5); border-radius: 5px; overflow: hidden;
+  box-shadow: 0 0 20px rgba(0,255,136,0.1);
+}
+.goal-fill {
+  height: 100%;
+  background: linear-gradient(90deg,#004422,#00bb55,#00ff88,#88ffcc);
+  border-radius: 3px; transition: width 0.6s ease;
+  animation: goalPulse 2.5s ease-in-out infinite;
+}
+@keyframes goalPulse { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.6)} }
+
+/* ═══ EVENT FEED (cam1 zone) ═══ */
+.event-feed {
+  position: absolute; bottom: 10px; left: 0; right: 0; padding: 0 16px;
+  display: flex; flex-direction: column; gap: 6px; z-index: 20;
+}
+.event-item {
+  background: rgba(0,0,0,0.9); border-left: 5px solid #00ffff;
+  border-radius: 0 6px 6px 0; padding: 9px 16px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 15px; color: #fff;
+  font-family: 'Orbitron', sans-serif; font-weight: 700; letter-spacing: 0.5px;
+  opacity: 0; transform: translateX(-30px);
+  animation: feedSlide 0.4s ease forwards;
+}
+.event-item.type-follow { border-color:#00ffff; }
+.event-item.type-sub    { border-color:#aa00ff; }
+.event-item.type-gift   { border-color:#ffcc00; }
+.event-item.type-share  { border-color:#00ff88; }
+.event-item.type-raid   { border-color:#ff4444; }
+.event-item.type-member { border-color:#ff88ff; }
+.event-item.type-mod    { border-color:#4488ff; }
+.event-item.type-like   { border-color:#ff4488; }
+.event-icon { font-size: 20px; flex-shrink: 0; }
+.event-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-name { color: #ffcc00; }
+@keyframes feedSlide { to{opacity:1;transform:translateX(0)} }
+
+/* ═══ SUPPORTERS (cam2 zone) ═══ */
+.supporters-bar {
+  position: absolute; top: 12px; left: 0; right: 0; padding: 0 16px;
+  display: flex; gap: 8px; flex-wrap: nowrap; overflow: hidden; z-index: 20;
+}
+.supporter-pill {
+  background: rgba(0,0,0,0.85); border: 2px solid rgba(255,200,0,0.5);
+  border-radius: 40px; padding: 6px 16px;
+  font-size: 14px; color: #ffcc00; font-weight: 700; white-space: nowrap; flex-shrink: 0;
+  animation: pillIn 0.3s ease;
+}
+@keyframes pillIn { from{opacity:0;transform:scale(0.7)} to{opacity:1;transform:scale(1)} }
+
+/* ═══ NOTIFICATION TICKER BAR ═══ */
+.ticker-bar {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.88);
+  border-top: 2px solid rgba(0,255,255,0.5);
+  border-bottom: 2px solid rgba(255,0,255,0.5);
+  overflow: hidden;
+  display: flex; align-items: center;
+  box-shadow: 0 0 40px rgba(0,255,255,0.15), 0 0 40px rgba(255,0,255,0.1);
+}
+.ticker-label {
+  font-family: 'Press Start 2P', monospace; font-size: 9px; letter-spacing: 2px;
+  color: #ffcc00; text-shadow: 0 0 12px #ffcc00;
+  padding: 0 18px; white-space: nowrap; flex-shrink: 0;
+  border-right: 2px solid rgba(255,200,0,0.4);
+  background: rgba(0,0,0,0.6);
+  height: 100%; display: flex; align-items: center;
+}
+.ticker-track {
+  flex: 1; overflow: hidden; position: relative; height: 100%;
+}
+.ticker-inner {
+  display: flex; align-items: center; height: 100%;
+  white-space: nowrap;
+  animation: tickerScroll 30s linear infinite;
+  will-change: transform;
+}
+.ticker-inner:hover { animation-play-state: paused; }
+@keyframes tickerScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-item {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 700;
+  padding: 0 40px; letter-spacing: 0.5px; white-space: nowrap;
+}
+.ticker-item .t-icon { font-size: 20px; }
+.ticker-item .t-name { color: #ffcc00; }
+.ticker-item .t-msg  { color: #fff; }
+.ticker-item.t-follow .t-msg { color: #00ffff; }
+.ticker-item.t-sub   .t-msg { color: #cc44ff; }
+.ticker-item.t-gift  .t-msg { color: #ffcc00; }
+.ticker-item.t-share .t-msg { color: #00ff88; }
+.ticker-item.t-raid  .t-msg { color: #ff6666; }
+.ticker-item.t-member .t-msg { color: #ff88ff; }
+.ticker-sep { color: rgba(255,255,255,0.2); padding: 0 8px; font-size: 20px; }
+
+/* Ticker shimmer line */
+.ticker-bar::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,255,255,0.8), rgba(255,0,255,0.8), transparent);
+  animation: tickerShimmer 3s ease-in-out infinite;
+}
+@keyframes tickerShimmer {
+  0%   { opacity:0.3; background-position: 0% 0%; }
+  50%  { opacity:1; }
+  100% { opacity:0.3; background-position: 200% 0%; }
+}
+
+/* ═══ NOTIFICATION POPUP ═══ */
+.notif-wrap {
+  position: absolute; top: 830px; left: 50%; transform: translateX(-50%);
+  width: 900px; z-index: 200; pointer-events: none;
+  display: none; flex-direction: column; align-items: center;
+}
+.notif-wrap.visible { display: flex; }
+.notif-box {
+  background: rgba(0,0,0,0.95); border: 3px solid #00ffff;
+  border-radius: 18px; padding: 40px 52px; text-align: center; width: 100%;
+  position: relative; overflow: hidden;
+  animation: notifBounce 0.5s cubic-bezier(.18,.89,.32,1.28) forwards;
+}
+.notif-box::before {
+  content:''; position:absolute; inset:0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent 60%);
+}
+.notif-box.c-follow { border-color:#00ffff; box-shadow:0 0 80px rgba(0,255,255,0.6),0 0 200px rgba(0,255,255,0.2); }
+.notif-box.c-sub    { border-color:#aa00ff; box-shadow:0 0 80px rgba(170,0,255,0.6),0 0 200px rgba(170,0,255,0.2); }
+.notif-box.c-gift   { border-color:#ffcc00; box-shadow:0 0 80px rgba(255,200,0,0.6),0 0 200px rgba(255,200,0,0.2); }
+.notif-box.c-share  { border-color:#00ff88; box-shadow:0 0 80px rgba(0,255,136,0.6),0 0 200px rgba(0,255,136,0.2); }
+.notif-box.c-raid   { border-color:#ff4444; box-shadow:0 0 120px rgba(255,68,68,0.8),0 0 250px rgba(255,68,68,0.3); }
+.notif-box.c-member { border-color:#ff88ff; box-shadow:0 0 80px rgba(255,136,255,0.6); }
+.notif-box.c-mod    { border-color:#4488ff; box-shadow:0 0 80px rgba(68,136,255,0.6); }
+.notif-box.c-goal   { border-color:#00ff88; box-shadow:0 0 120px rgba(0,255,136,0.8),0 0 250px rgba(0,255,136,0.3); }
+
+.notif-emoji { font-size: 80px; display:block; margin-bottom:12px; animation:emojiPop 0.4s ease; }
+@keyframes emojiPop { 0%{transform:scale(0) rotate(-20deg)} 60%{transform:scale(1.25) rotate(5deg)} 100%{transform:scale(1) rotate(0)} }
+.notif-headline {
+  font-family:'Press Start 2P',monospace; font-size:20px; letter-spacing:2px;
+  line-height:1.8; text-transform:uppercase; margin-bottom:12px;
+}
+.notif-headline.c-follow{color:#00ffff;text-shadow:0 0 24px #00ffff}
+.notif-headline.c-sub   {color:#cc44ff;text-shadow:0 0 24px #aa00ff}
+.notif-headline.c-gift  {color:#ffcc00;text-shadow:0 0 24px #ffaa00}
+.notif-headline.c-share {color:#00ff88;text-shadow:0 0 24px #00ff88}
+.notif-headline.c-raid  {color:#ff6666;text-shadow:0 0 24px #ff2222}
+.notif-headline.c-member{color:#ff88ff;text-shadow:0 0 24px #ff44ff}
+.notif-headline.c-mod   {color:#88aaff;text-shadow:0 0 24px #4466ff}
+.notif-headline.c-goal  {color:#00ff88;text-shadow:0 0 24px #00ff88}
+.notif-username { font-size:38px; font-weight:900; color:#fff; letter-spacing:2px; margin-bottom:8px; }
+.notif-sub { font-size:16px; color:rgba(255,255,255,0.45); letter-spacing:1px; }
+@keyframes notifBounce {
+  0%{opacity:0;transform:scale(0.4) translateY(60px)}
+  100%{opacity:1;transform:scale(1) translateY(0)}
+}
+
+/* ═══ FX LAYER ═══ */
+.fx-layer { position:fixed; inset:0; pointer-events:none; z-index:300; overflow:hidden; }
+.particle { position:absolute; border-radius:50%; pointer-events:none; animation:pFly linear forwards; }
+@keyframes pFly {
+  0%{opacity:1;transform:translate(0,0) scale(1)}
+  100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.1)}
+}
+.coin {
+  position:absolute; pointer-events:none; width:28px; height:28px; border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#ffee44,#ffaa00);
+  border:2px solid #cc8800; animation:cBurst ease-out forwards;
+}
+@keyframes cBurst {
+  0%{opacity:1;transform:translate(0,0) scale(1) rotate(0deg)}
+  100%{opacity:0;transform:translate(var(--cx),var(--cy)) scale(0.2) rotate(var(--cr))}
+}
+.lightning-bolt {
+  position:absolute; pointer-events:none; width:6px; border-radius:3px;
+  animation:lBolt ease-out forwards;
+}
+@keyframes lBolt {
+  0%{height:0;opacity:1} 60%{height:var(--lh);opacity:1} 100%{height:var(--lh);opacity:0}
+}
+.float-txt {
+  position:absolute; pointer-events:none;
+  font-family:'Press Start 2P',monospace; font-weight:900;
+  text-shadow:3px 3px 0 rgba(0,0,0,0.95);
+  animation:fUp ease-out forwards; white-space:nowrap;
+}
+@keyframes fUp {
+  0%{opacity:1;transform:translateY(0) scale(1)}
+  30%{opacity:1;transform:translateY(-50px) scale(1.2)}
+  100%{opacity:0;transform:translateY(-220px) scale(0.8)}
+}
+.meteor { position:absolute; pointer-events:none; width:6px; border-radius:3px; animation:mFall linear forwards; }
+@keyframes mFall {
+  0%{opacity:1;transform:translate(0,0) rotate(var(--mrot))}
+  100%{opacity:0;transform:translate(var(--mx),var(--my)) rotate(var(--mrot))}
+}
+.firework-burst { position:absolute; pointer-events:none; animation:fwBurst ease-out forwards; font-size:50px; }
+@keyframes fwBurst {
+  0%{opacity:0;transform:scale(0)}
+  40%{opacity:1;transform:scale(1.6)}
+  100%{opacity:0;transform:scale(3.5)}
+}
+@keyframes screenShake {
+  0%,100%{transform:translate(0,0)}
+  10%{transform:translate(-8px,-6px)} 20%{transform:translate(8px,5px)}
+  30%{transform:translate(-6px,8px)} 40%{transform:translate(6px,-6px)}
+  50%{transform:translate(-4px,4px)} 60%{transform:translate(4px,-3px)}
+  70%{transform:translate(-2px,4px)} 80%{transform:translate(2px,-2px)}
+  90%{transform:translate(-1px,0)}
+}
+.shaking { animation:screenShake 0.5s ease-in-out; }
+
+/* ═══ CONNECTION STATUS ═══ */
+.conn-status {
+  position:fixed; bottom:22px; right:22px;
+  font-family:'Press Start 2P',monospace; font-size:9px; letter-spacing:1px;
+  padding:7px 14px; border-radius:5px; background:rgba(0,0,0,0.88); z-index:500;
+  display:flex; align-items:center; gap:8px; border:1px solid rgba(255,255,255,0.1);
+}
+.conn-dot { width:8px; height:8px; border-radius:50%; }
+.conn-status.connected    .conn-dot { background:#00ff88; box-shadow:0 0 8px #00ff88; }
+.conn-status.connecting   .conn-dot { background:#ffcc00; animation:blink 0.8s infinite; }
+.conn-status.disconnected .conn-dot { background:#ff4444; }
+.conn-status.connected    { color:#00ff88; border-color:rgba(0,255,136,0.3); }
+.conn-status.connecting   { color:#ffcc00; border-color:rgba(255,200,0,0.3); }
+.conn-status.disconnected { color:#ff4444; border-color:rgba(255,68,68,0.3); }
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<!-- CAM 1 -->
+<div class="zone-cam1">
+  <div class="cam1-border" id="cam1Border"></div>
+  <div class="cam-tag cam1">● CAM 1</div>
+  <div class="event-feed" id="eventFeed"></div>
+</div>
+
+<!-- GAME -->
+<div class="zone-game">
+  <div class="game-border" id="gameBorder"></div>
+  <div class="hype-meter">
+    <div class="hype-meter-ticks" id="hypeTicks"></div>
+    <div class="hype-fill" id="hypeFill" style="height:0%"></div>
+    <div class="hype-label">HYPE</div>
+  </div>
+  <div class="combo-tracker">
+    <div class="combo-label">COMBO</div>
+    <div class="combo-fire" id="comboFire">🎮</div>
+    <div class="combo-x">x</div>
+    <div class="combo-number" id="comboNum">0</div>
+  </div>
+  <div class="goal-bar">
+    <div class="goal-label">
+      <span>🎯 DAILY GOAL</span>
+      <span id="goalText">0 / 100</span>
+    </div>
+    <div class="goal-track">
+      <div class="goal-fill" id="goalFill" style="width:0%"></div>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION TICKER -->
+<div class="zone-ticker">
+  <div class="ticker-bar">
+    <div class="ticker-label">⚡ LIVE</div>
+    <div class="ticker-track">
+      <div class="ticker-inner" id="tickerInner">
+        <!-- filled by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CAM 2 -->
+<div class="zone-cam2">
+  <div class="cam2-border" id="cam2Border"></div>
+  <div class="cam-tag cam2">● CAM 2</div>
+  <div class="supporters-bar" id="supporters"></div>
+</div>
+
+<!-- NOTIFICATION POPUP -->
+<div class="notif-wrap" id="notifWrap">
+  <div class="notif-box" id="notifBox">
+    <span class="notif-emoji" id="notifEmoji"></span>
+    <div class="notif-headline" id="notifHeadline"></div>
+    <div class="notif-username" id="notifUser"></div>
+    <div class="notif-sub" id="notifSub"></div>
+  </div>
+</div>
+
+<!-- FX -->
+<div class="fx-layer" id="fxLayer"></div>
+
+<!-- STATUS -->
+<div class="conn-status connecting" id="connStatus">
+  <div class="conn-dot"></div>
+  <span id="connLabel">CONNECTING...</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  ANIMATED BACKGROUND — Canvas with heavy lightning
+// ═══════════════════════════════════════════════════
+(function() {
+  const canvas = document.getElementById('bgCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 1080; canvas.height = 1920;
+
+  // Palette cycling
+  const PALETTES = [
+    ['#00ffff','#0044ff','#aa00ff'],
+    ['#ff00ff','#ff0066','#4400ff'],
+    ['#00ff88','#00ccff','#0055ff'],
+    ['#ffcc00','#ff4400','#cc00ff'],
+  ];
+  let pIdx = 0, pLerp = 0;
+  let curPal = PALETTES[0], tgtPal = PALETTES[1];
+
+  function lerpHex(a, b, t) {
+    const pa = parseInt(a.slice(1),16), pb = parseInt(b.slice(1),16);
+    const r = Math.round(((pa>>16)&255) + (((pb>>16)&255)-((pa>>16)&255))*t);
+    const g = Math.round(((pa>>8)&255)  + (((pb>>8)&255) -((pa>>8)&255)) *t);
+    const bl= Math.round((pa&255)       + ((pb&255)      -(pa&255))       *t);
+    return `rgb(${r},${g},${bl})`;
+  }
+
+  // Stars
+  const stars = Array.from({length:140},()=>({
+    x:Math.random()*1080, y:Math.random()*1920,
+    r:0.4+Math.random()*2, speed:0.08+Math.random()*0.35,
+    tw:Math.random()*Math.PI*2, tws:0.02+Math.random()*0.04, c:Math.floor(Math.random()*3)
+  }));
+
+  // Energy orbs
+  const orbs = Array.from({length:16},()=>({
+    x:Math.random()*1080, y:Math.random()*1920,
+    r:15+Math.random()*55, vx:(Math.random()-0.5)*0.5, vy:(Math.random()-0.5)*0.5,
+    ph:Math.random()*Math.PI*2, spd:0.004+Math.random()*0.009, c:Math.floor(Math.random()*3)
+  }));
+
+  // Hex grid
+  const HS = 65;
+  const hexes = [];
+  for(let row=0;row<Math.ceil(1920/(HS*1.5))+2;row++){
+    for(let col=0;col<Math.ceil(1080/(HS*1.73))+2;col++){
+      hexes.push({
+        x:col*HS*1.73+(row%2?HS*0.866:0), y:row*HS*1.5,
+        ph:Math.random()*Math.PI*2, spd:0.004+Math.random()*0.009
+      });
+    }
+  }
+  function hexPath(x,y,r){
+    ctx.beginPath();
+    for(let i=0;i<6;i++){const a=Math.PI/3*i-Math.PI/6; ctx.lineTo(x+r*Math.cos(a),y+r*Math.sin(a));}
+    ctx.closePath();
+  }
+
+  // Streams
+  const streams = Array.from({length:10},(_,i)=>({
+    x:(1080/10)*i+Math.random()*40-20,
+    y:Math.random()*1920, speed:0.6+Math.random()*2,
+    len:100+Math.random()*250, w:0.8+Math.random()*2,
+    c:Math.floor(Math.random()*3), alpha:0.15+Math.random()*0.35
+  }));
+
+  // ── LIGHTNING SYSTEM ──────────────────────────────
+  // Persistent bolts that live on the canvas background
+  const BG_BOLTS = [];
+  const MAX_BG_BOLTS = 12;
+
+  function makeBolt() {
+    const x = Math.random() * 1080;
+    const startY = Math.random() * 600;
+    const endY = startY + 200 + Math.random() * 800;
+    const segs = [];
+    let cy = startY, cx = x;
+    while(cy < endY) {
+      const ny = cy + 20 + Math.random() * 50;
+      const nx = cx + (Math.random()-0.5) * 120;
+      segs.push({x1:cx,y1:cy,x2:Math.max(10,Math.min(1070,nx)),y2:ny});
+      // occasional branch
+      if(Math.random()<0.3){
+        const bx = cx+(Math.random()-0.5)*180;
+        const by = cy+40+Math.random()*80;
+        segs.push({x1:cx,y1:cy,x2:Math.max(10,Math.min(1070,bx)),y2:Math.min(by,endY),branch:true});
+      }
+      cy = ny; cx = nx;
+    }
+    return {
+      segs, alpha:0.8+Math.random()*0.2, life:0,
+      maxLife:8+Math.random()*18,
+      color: Math.floor(Math.random()*3),
+      glow: 0.4+Math.random()*0.6,
+      width: 0.5+Math.random()*2,
+    };
+  }
+
+  let boltSpawnTimer = 0;
+
+  function drawBolts(colors) {
+    boltSpawnTimer++;
+    // spawn new bolts frequently
+    if(boltSpawnTimer > 4 && BG_BOLTS.length < MAX_BG_BOLTS){
+      BG_BOLTS.push(makeBolt());
+      boltSpawnTimer = 0;
+    }
+    for(let i = BG_BOLTS.length-1; i>=0; i--){
+      const b = BG_BOLTS[i];
+      b.life++;
+      if(b.life > b.maxLife){ BG_BOLTS.splice(i,1); continue; }
+      const fade = b.life < 3 ? b.life/3 : Math.max(0,1-(b.life-3)/(b.maxLife-3));
+      const col = colors[b.color];
+      b.segs.forEach(s=>{
+        const w = s.branch ? b.width*0.4 : b.width;
+        // glow pass
+        ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2);
+        ctx.strokeStyle = col; ctx.lineWidth = w*6;
+        ctx.globalAlpha = fade*b.glow*0.12;
+        ctx.shadowBlur = 0; ctx.stroke();
+        // core pass
+        ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2);
+        ctx.strokeStyle = s.branch ? col : '#ffffff';
+        ctx.lineWidth = s.branch ? w*0.5 : w;
+        ctx.globalAlpha = fade * b.alpha * (s.branch ? 0.4 : 1);
+        ctx.stroke();
+      });
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ── ELECTRIC ARCS (short horizontal sparks) ──────
+  const ARCS = [];
+  let arcTimer = 0;
+  function spawnArc(){
+    const y = Math.random()*1920;
+    const x = Math.random()*1080;
+    const len = 30+Math.random()*200;
+    ARCS.push({x,y,len,life:0,maxLife:6+Math.random()*10,c:Math.floor(Math.random()*3),alpha:0.6+Math.random()*0.4});
+  }
+  function drawArcs(colors){
+    arcTimer++;
+    if(arcTimer>6){ spawnArc(); if(Math.random()<0.4) spawnArc(); arcTimer=0; }
+    for(let i=ARCS.length-1;i>=0;i--){
+      const a=ARCS[i]; a.life++;
+      if(a.life>a.maxLife){ARCS.splice(i,1);continue;}
+      const fade=a.life<2?a.life/2:Math.max(0,1-(a.life-2)/(a.maxLife-2));
+      ctx.globalAlpha=fade*a.alpha;
+      ctx.strokeStyle=colors[a.c]; ctx.lineWidth=0.8;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y);
+      // jagged arc
+      let cx2=a.x;
+      while(cx2<a.x+a.len){
+        const step=5+Math.random()*15;
+        ctx.lineTo(cx2+step, a.y+(Math.random()-0.5)*20);
+        cx2+=step;
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // ── PLASMA BALLS ─────────────────────────────────
+  const PLASMA = Array.from({length:6},()=>({
+    x:Math.random()*1080, y:Math.random()*1920,
+    vx:(Math.random()-0.5)*1.2, vy:(Math.random()-0.5)*1.2,
+    r:4+Math.random()*8, life:0, c:Math.floor(Math.random()*3)
+  }));
+  function drawPlasma(colors){
+    PLASMA.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy; p.life+=0.05;
+      if(p.x<0||p.x>1080) p.vx*=-1;
+      if(p.y<0||p.y>1920) p.vy*=-1;
+      const grd=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*4);
+      grd.addColorStop(0,colors[p.c]+'cc');
+      grd.addColorStop(0.3,colors[p.c]+'44');
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha=0.7;
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r*4,0,Math.PI*2); ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r*0.4,0,Math.PI*2); ctx.fill();
+    });
+  }
+
+  let scanY=0, t=0;
+  let hypeLevel=0, eventFlash=0;
+
+  function drawFrame(){
+    ctx.clearRect(0,0,1080,1920);
+
+    // palette lerp
+    pLerp+=0.001;
+    if(pLerp>=1){ pLerp=0; pIdx=(pIdx+1)%PALETTES.length; curPal=PALETTES[pIdx]; tgtPal=PALETTES[(pIdx+1)%PALETTES.length]; }
+    const C=[0,1,2].map(i=>lerpHex(curPal[i],tgtPal[i],pLerp));
+
+    // 1. Deep BG
+    const bg=ctx.createLinearGradient(0,0,0,1920);
+    bg.addColorStop(0,'rgba(1,2,14,0.98)');
+    bg.addColorStop(0.5,'rgba(2,1,12,0.98)');
+    bg.addColorStop(1,'rgba(1,2,14,0.98)');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,1080,1920);
+
+    // 2. Hex grid
+    hexes.forEach(h=>{
+      const p=0.5+0.5*Math.sin(t*h.spd*5+h.ph);
+      ctx.globalAlpha=0.025+0.04*p;
+      ctx.strokeStyle=C[1]; ctx.lineWidth=0.7;
+      hexPath(h.x,h.y,HS*0.88); ctx.stroke();
+      if(p>0.94){ ctx.globalAlpha=0.04; ctx.fillStyle=C[0]; hexPath(h.x,h.y,HS*0.88); ctx.fill(); }
+    });
+    ctx.globalAlpha=1;
+
+    // 3. Streams
+    streams.forEach(s=>{
+      s.y+=s.speed; if(s.y>1920+s.len) s.y=-s.len;
+      const g=ctx.createLinearGradient(s.x,s.y-s.len,s.x,s.y+s.len);
+      g.addColorStop(0,'rgba(0,0,0,0)');
+      g.addColorStop(0.4,C[s.c]+'44');
+      g.addColorStop(0.5,C[s.c]+'bb');
+      g.addColorStop(0.6,C[s.c]+'44');
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha=s.alpha; ctx.fillStyle=g;
+      ctx.fillRect(s.x-s.w/2,s.y-s.len,s.w,s.len*2);
+    });
+    ctx.globalAlpha=1;
+
+    // 4. Orbs
+    orbs.forEach(o=>{
+      o.ph+=o.spd; o.x+=o.vx+Math.sin(o.ph)*0.25; o.y+=o.vy+Math.cos(o.ph*0.7)*0.25;
+      if(o.x<-o.r) o.x=1080+o.r; if(o.x>1080+o.r) o.x=-o.r;
+      if(o.y<-o.r) o.y=1920+o.r; if(o.y>1920+o.r) o.y=-o.r;
+      const pulse=0.55+0.45*Math.sin(o.ph*2);
+      const g=ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,o.r);
+      g.addColorStop(0,C[o.c]+Math.round(55*pulse).toString(16).padStart(2,'0'));
+      g.addColorStop(0.4,C[o.c]+'18'); g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha=pulse*0.65; ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha=1;
+
+    // 5. Stars
+    stars.forEach(s=>{
+      s.y+=s.speed; s.tw+=s.tws;
+      if(s.y>1920){s.y=0;s.x=Math.random()*1080;}
+      ctx.globalAlpha=0.25+0.75*(0.5+0.5*Math.sin(s.tw));
+      ctx.fillStyle=C[s.c];
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha=1;
+
+    // 6. ── LIGHTNING EVERYWHERE ──
+    drawBolts(C);
+    drawArcs(C);
+    drawPlasma(C);
+
+    // 7. Hype warmth
+    if(hypeLevel>30){
+      const ha=((hypeLevel-30)/70)*0.18;
+      ctx.fillStyle=`rgba(255,80,0,${ha})`; ctx.fillRect(0,0,1080,1920);
+    }
+
+    // 8. Event flash
+    if(eventFlash>0){
+      ctx.fillStyle=`rgba(255,255,255,${eventFlash*0.08})`; ctx.fillRect(0,0,1080,1920);
+      eventFlash-=0.05;
+    }
+
+    // 9. Scan line
+    scanY+=3; if(scanY>1920) scanY=0;
+    const sg=ctx.createLinearGradient(0,scanY-50,0,scanY+50);
+    sg.addColorStop(0,'rgba(0,255,255,0)'); sg.addColorStop(0.5,'rgba(0,255,255,0.05)'); sg.addColorStop(1,'rgba(0,255,255,0)');
+    ctx.fillStyle=sg; ctx.fillRect(0,scanY-50,1080,100);
+
+    // 10. Vignette
+    const v=ctx.createRadialGradient(540,960,350,540,960,1100);
+    v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,0.65)');
+    ctx.fillStyle=v; ctx.fillRect(0,0,1080,1920);
+
+    // 11. Zone dividers
+    [300,1500,1620].forEach((y,i)=>{
+      const dg=ctx.createLinearGradient(0,0,1080,0);
+      dg.addColorStop(0,'transparent'); dg.addColorStop(0.3,C[i%3]+'aa');
+      dg.addColorStop(0.7,C[(i+1)%3]+'aa'); dg.addColorStop(1,'transparent');
+      ctx.strokeStyle=dg; ctx.lineWidth=1.5;
+      ctx.globalAlpha=0.4+0.4*Math.sin(t*2+i);
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(1080,y); ctx.stroke();
+    });
+    ctx.globalAlpha=1;
+
+    t+=0.016;
+    requestAnimationFrame(drawFrame);
+  }
+  drawFrame();
+
+  window._bgSetHype = v => { hypeLevel=v; };
+  window._bgFlash   = ()=> { eventFlash=1; };
+})();
+
+// ═══════════════════════════════════════════════════
+//  BUILD HYPE TICKS
+// ═══════════════════════════════════════════════════
+(function(){
+  const el=document.getElementById('hypeTicks');
+  for(let i=0;i<20;i++){
+    const t=document.createElement('div');
+    t.className='hype-tick'; el.appendChild(t);
+  }
+})();
+
+// ═══════════════════════════════════════════════════
+//  TICKER SYSTEM
+// ═══════════════════════════════════════════════════
+const tickerQueue = [];
+const TICKER_DEFAULTS = [
+  {type:'follow', icon:'👤', name:'Welcome!', msg:'FOLLOW TO JOIN THE ADVENTURE'},
+  {type:'sub',    icon:'⭐', name:'Heroes',   msg:'SUBSCRIBE FOR LEGENDARY STATUS'},
+  {type:'gift',   icon:'🎁', name:'Support',  msg:'SEND GIFTS TO POWER UP THE STREAM'},
+  {type:'share',  icon:'📤', name:'Allies',   msg:'SHARE TO SPREAD THE LEGEND'},
+];
+
+function buildTickerHTML(items) {
+  // duplicate for seamless loop
+  const all = [...items, ...items];
+  return all.map(i=>`
+    <span class="ticker-item t-${i.type}">
+      <span class="t-icon">${i.icon}</span>
+      <span class="t-name">${i.name}</span>
+      <span class="t-msg">${i.msg}</span>
+    </span>
+    <span class="ticker-sep">✦</span>
+  `).join('');
+}
+
+function refreshTicker() {
+  const inner = document.getElementById('tickerInner');
+  const items = tickerQueue.length > 0 ? [...tickerQueue].slice(-20) : TICKER_DEFAULTS;
+  inner.innerHTML = buildTickerHTML(items);
+  // reset animation
+  inner.style.animation='none'; void inner.offsetWidth;
+  inner.style.animation='';
+  // adjust speed based on content count
+  const dur = Math.max(20, items.length * 4);
+  inner.style.animationDuration = dur + 's';
+}
+
+function addTicker(type, icon, name, msg) {
+  tickerQueue.push({type, icon, name, msg});
+  if(tickerQueue.length > 30) tickerQueue.shift();
+  refreshTicker();
+}
+
+refreshTicker();
+
+// ═══════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════
+const CONFIG = {
+  INTEGRATION: 'tikfinity',
+  TIKFINITY_WS_URL: TIKFINITY_WS_URL: 'wss://tikfinity.zerody.one/ws/overlay?cid=1019485',  RELAY_WS_URL: 'ws://localhost:3001',
+  GOAL_TARGET: 100,
+  NOTIF_DURATION: 3800,
+};
+
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+let state = {
+  hype:0, goalCount:0, combo:0,
+  comboTimer:null, notifTimeout:null,
+  ws:null, reconnectDelay:2000,
+};
+
+// ═══════════════════════════════════════════════════
+//  WEBSOCKET
+// ═══════════════════════════════════════════════════
+function connect() {
+  const url = CONFIG.INTEGRATION==='tikfinity' ? CONFIG.TIKFINITY_WS_URL : CONFIG.RELAY_WS_URL;
+  setConnStatus('connecting','CONNECTING...');
+  try{ state.ws=new WebSocket(url); }catch(e){ scheduleReconnect(); return; }
+  state.ws.onopen  =()=>{ setConnStatus('connected','LIVE'); state.reconnectDelay=2000; };
+  state.ws.onmessage=(e)=>{ try{ handleEvent(JSON.parse(e.data)); }catch{} };
+  state.ws.onclose =()=>{ setConnStatus('disconnected','OFFLINE'); scheduleReconnect(); };
+  state.ws.onerror =()=>{ setConnStatus('disconnected','ERROR'); };
+}
+function scheduleReconnect(){
+  setTimeout(()=>{ state.reconnectDelay=Math.min(state.reconnectDelay*1.5,30000); connect(); },state.reconnectDelay);
+}
+function setConnStatus(cls,label){
+  document.getElementById('connStatus').className='conn-status '+cls;
+  document.getElementById('connLabel').textContent=label;
+}
+
+// ═══════════════════════════════════════════════════
+//  EVENT ROUTER
+// ═══════════════════════════════════════════════════
+function handleEvent(raw) {
+  let type,username,amount,viewers,giftName;
+  if(CONFIG.INTEGRATION==='tikfinity'){
+    type=    (raw.type||'').toLowerCase();
+    username=raw.data?.username||raw.data?.nickname||'Someone';
+    amount=  raw.data?.amount||raw.data?.repeatCount||1;
+    giftName=raw.data?.giftName||raw.data?.gift?.name||'a gift';
+    viewers= raw.data?.viewerCount;
+    const map={follow:'follow',subscribe:'sub',gift:'gift',share:'share',
+               like:'like',member:'member',moderatoradded:'mod',roomviewercount:'viewers'};
+    type=map[type]||type;
+  } else {
+    type=    (raw.event||'').toLowerCase();
+    username=raw.username||raw.nickname||'Someone';
+    amount=  raw.amount||raw.repeatCount||raw.count||1;
+    giftName=raw.giftName||raw.gift||'a gift';
+    viewers= raw.viewers||raw.viewerCount;
+  }
+  switch(type){
+    case 'follow':   onFollow(username); break;
+    case 'sub': case 'subscribe': case 'subscription': onSub(username); break;
+    case 'gift':     onGift(username,giftName,amount); break;
+    case 'share':    onShare(username); break;
+    case 'like':     onLike(username,amount); break;
+    case 'member':   onMember(username); break;
+    case 'mod':      onMod(username); break;
+    case 'raid': case 'host': onRaid(username,amount); break;
+    case 'goal':     onGoalComplete(); break;
+    default: console.log('Unknown:',type,raw);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  EVENT HANDLERS
+// ═══════════════════════════════════════════════════
+function onFollow(n){
+  showNotif('⚔️','NEW ADVENTURER JOINED!','follow',n,'PARTY +1');
+  addFeed('👤',n,'followed!','follow');
+  addTicker('follow','👤',n,'JOINED THE ADVENTURE!');
+  burst(540,960,['#00ffff','#0088ff','#fff'],22);
+  coins(540,900,10); floatTxt('+FOLLOW','#00ffff',400,800,28);
+  hypeUp(15); goalUp(1); borderFlash(); bgFlash();
+}
+function onSub(n){
+  showNotif('💜','HERO STATUS ACHIEVED!','sub',n,'LEGENDARY TIER');
+  addFeed('⭐',n,'subscribed!','sub');
+  addTicker('sub','⭐',n,'ACHIEVED HERO STATUS! LEGENDARY TIER');
+  burst(540,900,['#aa00ff','#ff00ff','#cc44ff','#fff'],42);
+  lightning(540,300,1200); shake();
+  floatTxt('LEGENDARY!','#cc44ff',360,760,34);
+  floatTxt('+SUB','#aa00ff',500,860,26);
+  hypeUp(30); goalUp(5); borderFlash(); bgFlash();
+}
+function onGift(n,gift,count){
+  state.combo++;
+  clearTimeout(state.comboTimer);
+  state.comboTimer=setTimeout(resetCombo,8000);
+  updateCombo(state.combo);
+  if     (state.combo>=50) comboMega(n,gift,state.combo);
+  else if(state.combo>=25) comboMeteor(n,gift,state.combo);
+  else if(state.combo>=10) comboLightning(n,gift,state.combo);
+  else if(state.combo>=5)  comboFire(n,gift,state.combo);
+  else {
+    showNotif('🎁','MAGICAL ARTIFACT!','gift',n,`${gift} x${count}`);
+    addFeed('🎁',n,`sent ${gift}!`,'gift');
+    coins(540,900,14); burst(540,880,['#ffcc00','#ff8800','#ffee44'],24);
+    floatTxt('+GIFT','#ffcc00',420,820,26);
+  }
+  addTicker('gift','🎁',n,`SENT ${gift.toUpperCase()} x${count}! ⚡ COMBO x${state.combo}`);
+  addSupporter(n,'🎁'); hypeUp(20); goalUp(2); bgFlash();
+}
+function onShare(n){
+  showNotif('📤','THE REALM GROWS!','share',n,'SHARED TO TIMELINE');
+  addFeed('📤',n,'shared the stream!','share');
+  addTicker('share','📤',n,'SHARED THE STREAM — LEGEND SPREADS!');
+  burst(540,900,['#00ff88','#00ffcc','#fff'],20);
+  shake(); floatTxt('+SHARE','#00ff88',410,800,26);
+  hypeUp(12); bgFlash();
+}
+function onLike(n,count){
+  addFeed('❤️',n,`liked x${count}!`,'like');
+  addTicker('follow','❤️',n,`DROPPED ${count} LIKES ON THE STREAM!`);
+  burst(540,900,['#ff4488','#ff88aa','#ffd'],12);
+  floatTxt(`+${count} ❤️`,'#ff4488',440,820,24);
+  hypeUp(5);
+}
+function onMember(n){
+  showNotif('🎖️','NEW MEMBER JOINED!','member',n,'WELCOME TO THE GUILD');
+  addFeed('🎖️',n,'became a member!','member');
+  addTicker('member','🎖️',n,'JOINED THE GUILD — OFFICIAL MEMBER!');
+  burst(540,900,['#ff88ff','#ff44ff','#fff'],22);
+  floatTxt('MEMBER!','#ff88ff',420,820,28);
+  addSupporter(n,'🎖️'); hypeUp(20); goalUp(3); borderFlash(); bgFlash();
+}
+function onMod(n){
+  showNotif('🛡️','NEW MODERATOR!','mod',n,'GUARDIAN OF THE REALM');
+  addFeed('🛡️',n,'is now a moderator!','mod');
+  addTicker('sub','🛡️',n,'APPOINTED MODERATOR — GUARDIAN OF THE REALM!');
+  lightning(300,300,1200); lightning(780,300,1200);
+  burst(540,900,['#4488ff','#88aaff','#fff'],26);
+  floatTxt('MOD POWER!','#4488ff',400,800,30);
+  hypeUp(25); bgFlash();
+}
+function onRaid(n,count){
+  showNotif('⚔️','RAID INCOMING!!!','raid',n,`${count} RAIDERS INBOUND`);
+  addFeed('⚔️',n,`raided with ${count} viewers!`,'raid');
+  addTicker('raid','⚔️',n,`RAIDED WITH ${count} WARRIORS! KINGDOM EXPANDS!`);
+  shake(); lightning(540,0,1920);
+  burst(540,960,['#ff4444','#ff8800','#ffcc00','#fff'],65);
+  coins(540,900,22); coins(300,800,14); coins(780,800,14);
+  floatTxt('RAID!!!','#ff4444',420,700,44);
+  floatTxt(`+${count} VIEWERS`,'#ff8800',360,820,30);
+  fireworks(); hypeUp(50); goalUp(10);
+  setTimeout(shake,600); bgFlash(); bgFlash();
+}
+function onGoalComplete(){
+  showNotif('🏆','GOAL COMPLETE!!!','goal','LEGENDARY ACHIEVEMENT','');
+  addTicker('sub','🏆','GOAL','COMPLETED! LEGENDARY ACHIEVEMENT UNLOCKED!');
+  fireworks(); burst(540,960,['#00ff88','#ffcc00','#ff88ff','#00ffff','#fff'],85);
+  shake(); lightning(200,300,1200); lightning(880,300,1200);
+  floatTxt('GOAL COMPLETE!','#00ff88',290,700,38);
+  setTimeout(shake,400); state.goalCount=0; updateGoalBar(); bgFlash(); bgFlash();
+}
+
+function comboFire(n,gift,c){
+  showNotif('🔥',`x${c} COMBO — ON FIRE!`,'gift',n,gift);
+  addFeed('🔥',n,`${gift} — x${c} COMBO!`,'gift');
+  burst(540,900,['#ff4400','#ff8800','#ffcc00'],32);
+  floatTxt(`x${c} ON FIRE!`,'#ff6600',380,780,32);
+}
+function comboLightning(n,gift,c){
+  showNotif('⚡',`x${c} LIGHTNING STORM!`,'gift',n,gift);
+  addFeed('⚡',n,`${gift} — x${c} STORM!`,'gift');
+  lightning(540,300,1200); shake();
+  burst(540,900,['#aaff00','#ffff00','#fff'],38);
+  floatTxt(`x${c} STORM!`,'#aaff00',380,780,34);
+}
+function comboMeteor(n,gift,c){
+  showNotif('☄️',`x${c} METEOR SHOWER!!!`,'gift',n,gift);
+  addFeed('☄️',n,`${gift} — x${c} METEOR!`,'gift');
+  meteors(); shake();
+  burst(540,900,['#ff6600','#ffaa00','#ff4400','#fff'],55);
+  floatTxt(`x${c} METEOR!`,'#ff6600',360,760,36); setTimeout(shake,500);
+}
+function comboMega(n,gift,c){
+  showNotif('💥',`x${c} UNSTOPPABLE!!!`,'gift',n,gift);
+  addFeed('💥',n,`${gift} — x${c} MEGA!`,'gift');
+  fireworks(); meteors(); shake();
+  lightning(200,300,1920); lightning(880,300,1920);
+  burst(540,960,['#f00','#f80','#fc0','#fff','#f8f','#0ff'],100);
+  coins(540,960,32);
+  floatTxt(`x${c} UNSTOPPABLE!`,'#ffcc00',280,700,38);
+  setTimeout(shake,400); setTimeout(shake,800); bgFlash(); bgFlash();
+}
+function resetCombo(){ state.combo=0; updateCombo(0); }
+
+// ═══════════════════════════════════════════════════
+//  STATE UPDATERS
+// ═══════════════════════════════════════════════════
+function hypeUp(delta){
+  state.hype=Math.min(100,state.hype+delta);
+  document.getElementById('hypeFill').style.height=state.hype+'%';
+  if(window._bgSetHype) window._bgSetHype(state.hype);
+  if(state.hype>=100){
+    state.hype=0;
+    lightning(540,300,1200); shake();
+    floatTxt('MAX HYPE!!!','#ffcc00',360,700,36);
+    burst(540,960,['#ffcc00','#ff6600','#fff'],42);
+    document.getElementById('cam1Border').classList.add('hype-active');
+    document.getElementById('cam2Border').classList.add('hype-active');
+    setTimeout(()=>{
+      document.getElementById('cam1Border').classList.remove('hype-active');
+      document.getElementById('cam2Border').classList.remove('hype-active');
+    },3000);
+    document.getElementById('hypeFill').style.height='0%';
+    if(window._bgSetHype) window._bgSetHype(0);
+  }
+}
+function goalUp(n){
+  state.goalCount=Math.min(CONFIG.GOAL_TARGET,state.goalCount+n);
+  updateGoalBar();
+  if(state.goalCount>=CONFIG.GOAL_TARGET) onGoalComplete();
+}
+function updateGoalBar(){
+  const pct=(state.goalCount/CONFIG.GOAL_TARGET)*100;
+  document.getElementById('goalFill').style.width=pct+'%';
+  document.getElementById('goalText').textContent=state.goalCount+' / '+CONFIG.GOAL_TARGET;
+}
+function updateCombo(n){
+  document.getElementById('comboNum').textContent=n;
+  const f=document.getElementById('comboFire');
+  if     (n>=50) f.textContent='💥';
+  else if(n>=25) f.textContent='☄️';
+  else if(n>=10) f.textContent='⚡';
+  else if(n>=5)  f.textContent='🔥';
+  else           f.textContent='🎮';
+}
+
+// ═══════════════════════════════════════════════════
+//  UI HELPERS
+// ═══════════════════════════════════════════════════
+function showNotif(emoji,headline,colorClass,user,sub){
+  clearTimeout(state.notifTimeout);
+  const wrap=document.getElementById('notifWrap');
+  const box=document.getElementById('notifBox');
+  document.getElementById('notifEmoji').textContent=emoji;
+  document.getElementById('notifHeadline').textContent=headline;
+  document.getElementById('notifUser').textContent=user;
+  document.getElementById('notifSub').textContent=sub;
+  box.className='notif-box c-'+colorClass;
+  document.getElementById('notifHeadline').className='notif-headline c-'+colorClass;
+  box.style.animation='none'; void box.offsetWidth; box.style.animation='';
+  wrap.classList.add('visible');
+  state.notifTimeout=setTimeout(()=>wrap.classList.remove('visible'),CONFIG.NOTIF_DURATION);
+}
+function addFeed(icon,name,text,type){
+  const feed=document.getElementById('eventFeed');
+  const el=document.createElement('div');
+  el.className=`event-item type-${type}`;
+  el.innerHTML=`<span class="event-icon">${icon}</span><span class="event-text"><span class="event-name">${name}</span> ${text}</span>`;
+  feed.appendChild(el);
+  while(feed.children.length>3) feed.removeChild(feed.firstChild);
+}
+function addSupporter(name,icon){
+  const bar=document.getElementById('supporters');
+  const pill=document.createElement('div');
+  pill.className='supporter-pill';
+  pill.textContent=`${icon} ${name}`;
+  bar.insertBefore(pill,bar.firstChild);
+  while(bar.children.length>5) bar.removeChild(bar.lastChild);
+}
+function borderFlash(){
+  const gb=document.getElementById('gameBorder');
+  gb.classList.add('event-active');
+  setTimeout(()=>gb.classList.remove('event-active'),1500);
+}
+function bgFlash(){ if(window._bgFlash) window._bgFlash(); }
+
+// ═══════════════════════════════════════════════════
+//  FX HELPERS
+// ═══════════════════════════════════════════════════
+const fx=document.getElementById('fxLayer');
+
+function burst(cx,cy,colors,count){
+  for(let i=0;i<count;i++){
+    const el=document.createElement('div'); el.className='particle';
+    const angle=(Math.PI*2*i)/count+Math.random()*0.5;
+    const dist=80+Math.random()*220, size=6+Math.random()*12, dur=0.7+Math.random()*0.6;
+    el.style.cssText=`left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;`
+      +`background:${colors[i%colors.length]};`
+      +`--dx:${Math.cos(angle)*dist}px;--dy:${Math.sin(angle)*dist}px;animation-duration:${dur}s;`;
+    fx.appendChild(el); setTimeout(()=>el.remove(),dur*1000+50);
+  }
+}
+function coins(cx,cy,count){
+  for(let i=0;i<count;i++){
+    const el=document.createElement('div'); el.className='coin';
+    const angle=(Math.PI*2*i)/count, dist=60+Math.random()*130, dur=0.8+Math.random()*0.5;
+    el.style.cssText=`left:${cx-14}px;top:${cy-14}px;`
+      +`--cx:${Math.cos(angle)*dist}px;--cy:${Math.sin(angle)*dist-70}px;`
+      +`--cr:${Math.random()*720}deg;animation-duration:${dur}s;`;
+    fx.appendChild(el); setTimeout(()=>el.remove(),dur*1000+50);
+  }
+}
+function lightning(x,startY,len){
+  const el=document.createElement('div'); el.className='lightning-bolt';
+  const col=['#00ffff','#aaff00','#ff44ff','#ffcc00'][Math.floor(Math.random()*4)];
+  el.style.cssText=`left:${x}px;top:${startY}px;--lh:${len}px;animation-duration:0.4s;`
+    +`background:linear-gradient(to bottom,#fff,${col},transparent);`
+    +`box-shadow:0 0 24px ${col},0 0 50px ${col};`;
+  fx.appendChild(el); setTimeout(()=>el.remove(),450);
+}
+function floatTxt(text,color,x,y,size){
+  const el=document.createElement('div'); el.className='float-txt';
+  el.textContent=text;
+  el.style.cssText=`left:${x}px;top:${y}px;color:${color};font-size:${size}px;animation-duration:1.8s;`;
+  fx.appendChild(el); setTimeout(()=>el.remove(),1900);
+}
+function shake(){
+  document.body.classList.remove('shaking'); void document.body.offsetWidth;
+  document.body.classList.add('shaking');
+  setTimeout(()=>document.body.classList.remove('shaking'),550);
+}
+function fireworks(){
+  const cols=['#ff4444','#ffcc00','#00ff88','#00ffff','#ff88ff','#fff'];
+  for(let i=0;i<10;i++){
+    setTimeout(()=>{
+      const el=document.createElement('div'); el.className='firework-burst';
+      el.textContent='✦';
+      el.style.cssText=`left:${100+Math.random()*880}px;top:${400+Math.random()*900}px;`
+        +`color:${cols[i%cols.length]};animation-duration:${0.7+Math.random()*0.4}s;`;
+      fx.appendChild(el); setTimeout(()=>el.remove(),1200);
+    },i*110);
+  }
+}
+function meteors(){
+  for(let i=0;i<18;i++){
+    setTimeout(()=>{
+      const el=document.createElement('div'); el.className='meteor';
+      const dur=0.35+Math.random()*0.4, len=90+Math.random()*130;
+      el.style.cssText=`left:${Math.random()*1080}px;top:-20px;height:${len}px;`
+        +`background:linear-gradient(to bottom,#fff,#ffaa00,transparent);`
+        +`--mx:${(Math.random()-0.5)*200}px;--my:${600+Math.random()*700}px;`
+        +`--mrot:${30+Math.random()*30}deg;animation-duration:${dur}s;`;
+      fx.appendChild(el); setTimeout(()=>el.remove(),dur*1000+50);
+    },i*55);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════
+connect();
+window.testEvent = handleEvent;
+
+const params = new URLSearchParams(location.search);
+if(params.get('test')){
+  setTimeout(()=>{
+    handleEvent({event:params.get('test'),username:params.get('user')||'TestUser',amount:5,giftName:'Rose'});
+  },1500);
+}
+</script>
+</body>
+</html>
